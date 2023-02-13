@@ -1,5 +1,8 @@
+
 Arduino/wxPython theatrical cue light system
 ============================================
+
+**UPDATED FOR PYTHON 3 (by [@LoneWalkerWolf](https://github.com/LoneWalkerWolf))**
 
 Background
 ----------

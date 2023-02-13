@@ -6,11 +6,11 @@ import serial
 import time
 import threading
 
-device = '/dev/cu.usbmodem1411'
+device = 'SERIAL_PORT_HERE'
 numChannels = 6
-(button_width, button_height) = (100,50)
+(button_width, button_height) = (100, 50)
 
-chan = [] # empty array to hold channels
+chan = []  # empty array to hold channels
 
 
 class Status(object):
@@ -21,6 +21,7 @@ class Status(object):
         code = None
         self.label = label
         self.colour = colour
+
 
 # create the statuses
 reset = Status(label='Reset', colour='black')
@@ -40,8 +41,8 @@ for this_status in [reset, standby, ready, go]:
 class Channel(object):
     """An object for each channel that will hold the visual elements for that channel and control it"""
 
-    button = [] # empty dict to hold buttons for this channel
-    status = reset # status reported by Arduino for this channel, default is reset
+    button = []  # empty dict to hold buttons for this channel
+    status = reset  # status reported by Arduino for this channel, default is reset
 
     def __init__(self, index):
         """Init channel with index and number"""
@@ -50,13 +51,18 @@ class Channel(object):
 
     def write(self, status):
         """Write status over serial to the Arduino"""
-        ser.write(b'^') # packet start
-        ser.write(str(self.index)) # channel
-        ser.write(str(status)) # status
+
+        status = int(status)
+        self.index = int(self.index)
+
+        ser.write(b'^')  # packet start
+        ser.write(str(self.index).encode())  # channel
+        ser.write(str(status).encode())  # channel
 
 
 # create an ID for status update events from the Arduino
-EVT_STATUS_UPDATE_ID = wx.NewId()
+EVT_STATUS_UPDATE_ID = wx.NewIdRef(count=1)
+
 
 def EVT_STATUS_UPDATE(win, func):
     """Define status update event for communication from Arduino"""
@@ -65,6 +71,7 @@ def EVT_STATUS_UPDATE(win, func):
 
 class StatusUpdateEvent(wx.PyEvent):
     """Event which carries channel and status data for updates from Arduino"""
+
     def __init__(self, channel, status):
         """Init Result Event."""
         wx.PyEvent.__init__(self)
@@ -80,26 +87,30 @@ class SerialListener(threading.Thread):
         """Init thread class"""
         threading.Thread.__init__(self)
         self.notify_window = notify_window
-        self.daemon = True # end thread when main window is closed
+        self.daemon = True  # end thread when main window is closed
         self.start()
 
     def run(self):
         """Run serial listener"""
+
         while True:
             # if ^ followed by two bytes are available
-            if (ser.inWaiting() > 2 and ser.read() == '^'):
-                first_byte = ser.read()
+            first_byte = str(ser.read())
+            first_byte = first_byte[1:4]
+            if (ser.in_waiting >= 2 and first_byte == "'^'"):
+                first_byte = str(ser.read())[2:3]
                 # check for error notification
                 if first_byte != 'E':
-                    rxChannel = int(first_byte) # convert ASCII to int
-                    rxStatus = int(ser.read()) # convert ASCII to int
+                    rxChannel = int(first_byte)  # convert ASCII to int
+                    rxStatus = int(ser.read())  # convert ASCII to int
                     # if first byte is good
                     if (rxChannel >= 0 and rxChannel < numChannels):
                         pass
                         # if second byte is also good
                         if (rxStatus >= 0 and rxStatus < len(statuses)):
                             # send status update event
-                            wx.PostEvent(self.notify_window, StatusUpdateEvent(rxChannel, rxStatus))
+                            wx.PostEvent(self.notify_window,
+                                         StatusUpdateEvent(rxChannel, rxStatus))
                         # if second byte is bad
                         else:
                             ser.write(b'^Estatus not understood\n')
@@ -111,17 +122,18 @@ class SerialListener(threading.Thread):
 class MainWindow(wx.Frame):
     def __init__(self, parent, id, title):
         # calculate size of frame needed
-        frame_size = ( ((button_width + 5) * (numChannels + 1)) + 15,
-                       ((button_height + 5) * 4) + 30
-                     )
-        wx.Frame.__init__(self, parent, id, title, pos=wx.DefaultPosition, size=frame_size)
+        frame_size = (((button_width + 5) * (numChannels + 1)) + 50,
+                      ((button_height + 5) * 4) + 30
+                      )
+        wx.Frame.__init__(self, parent, id, title,
+                          pos=wx.DefaultPosition, size=frame_size)
         self.panel = wx.Panel(self)
 
         # try opening serial connection
         self.OpenSerialConnection(device)
 
         # create Channel instance for each channel and add to chan array
-        for i in range(0,numChannels):
+        for i in range(0, numChannels):
             chan.append(Channel(i))
 
         self.CreateGrid()
@@ -138,10 +150,10 @@ class MainWindow(wx.Frame):
             global ser
             ser = serial.Serial(_device, 9600)
         except serial.SerialException:
-            print "Couldn't connect to Arduino on %s" % device
+            print("Couldn't connect to Arduino on %s" % device)
             error_box = wx.MessageDialog(
                 parent=None, message="Couldn't connect to Arduino on %s" % _device,
-                caption='Error', style=wx.OK|wx.ICON_ERROR)
+                caption='Error', style=wx.OK | wx.ICON_ERROR)
             # for some reason we might need to call ShowModal twice to make it appear
             error_box.ShowModal()
             error_box.ShowModal()
@@ -152,14 +164,18 @@ class MainWindow(wx.Frame):
         """Runs when a single-channel status button is pressed"""
         event_object = event.GetEventObject()
         # get the relevant channel and status from the button and write
-        chan[event_object.channel].write(event_object.status.code)
+        temp = event_object.status.code
+        temp = repr(temp).encode('utf-8')
+        chan[event_object.channel].write(temp)
 
     def OnAllButton(self, event):
         """Runs when an all-channel status button is pressed"""
         event_object = event.GetEventObject()
         # get the relevant status from the button and write for each channel
         for this_channel in chan:
-            this_channel.write(event_object.status.code)
+
+            byteTemp = str(event_object.status.code)
+            this_channel.write(byteTemp.encode())
 
     def OnStatusUpdate(self, event):
         """Runs when status update event is received from serial listener thread"""
@@ -179,17 +195,19 @@ class MainWindow(wx.Frame):
         for this_channel in chan:
             # channel numbers
             self.grid.Add(
-                wx.StaticText(parent=self.panel, label='Chan %d' % this_channel.num),
+                wx.StaticText(parent=self.panel, label='Chan %d' %
+                              this_channel.num),
                 flag=wx.ALIGN_CENTER)
 
         # second row
-        self.grid.Add((0,0)) # empty cell on left second row
+        self.grid.Add((0, 0))  # empty cell on left second row
         for this_channel in chan:
             # channel status text
             this_channel.status_text = wx.TextCtrl(
-                parent=self.panel, style=wx.TE_READONLY|wx.TE_RICH|wx.TE_CENTER)
+                parent=self.panel, style=wx.TE_READONLY | wx.TE_RICH | wx.TE_CENTER)
             this_channel.status_text.ChangeValue(this_channel.status.label)
-            this_channel.status_text.SetForegroundColour(this_channel.status.colour)
+            this_channel.status_text.SetForegroundColour(
+                this_channel.status.colour)
             self.grid.Add(this_channel.status_text)
             # create empty button array for this channel
             this_channel.button = []
@@ -231,6 +249,7 @@ class MyApp(wx.App):
         frame.Show(True)
         frame.Centre()
         return True
+
 
 app = MyApp(0)
 app.MainLoop()
